@@ -1,0 +1,18 @@
+## Interface: 120007
+## Title: PressW M+ OOC Tracker
+## Notes: Tracks out-of-combat time during Mythic+ keystone runs.
+## Author: demeisen6
+## Version: 0.0.2
+## X-License: MIT
+## X-Website: https://github.com/demeisen6/PressW
+## SavedVariables: PressWDB
+## IconTexture: Interface\Icons\Ability_Rogue_Sprint
+
+# --- Load order ---
+Core.lua
+Tracker.lua
+Display.lua
+Records.lua
+RecordsUI.lua
+Options.lua
+MythicPlus.lua
