@@ -113,71 +113,55 @@ local function onStartTimer(timerType, timeSeconds)
 	end
 end
 
--- Pull the official run time (ms) from GetCompletionInfo. Robust to two quirks:
--- the function is often empty for a moment after the event fires (so the caller
--- retries), and its return order has shifted across patches (so we take the
--- documented index 3, then fall back to scanning for the one value large enough
--- to be a run time in ms — scores and levels are far smaller).
-local function readOfficialTimeMs()
-	if not (C_ChallengeMode and C_ChallengeMode.GetCompletionInfo) then return nil end
-	local r = { C_ChallengeMode.GetCompletionInfo() }
-	if type(r[3]) == "number" and r[3] > 1000 then return r[3] end
-	for _, v in ipairs(r) do
-		if type(v) == "number" and v > 60000 then return v end  -- > 1 min in ms
-	end
-	return nil
-end
-
 local function onCompleted()
 	if not ns.Tracker.IsRunning() then return end
 
-	-- Stop tracking immediately so OOC segments end at completion, not after the
-	-- poll delay below. Identity/par come from the keystone info captured at start.
+	-- Stop tracking immediately so OOC segments end exactly at completion.
 	local summary = ns.Tracker.Stop()
 	if not summary then return end
 	local meta = activeMeta or {}
 	activeMeta = nil
 
-	local function finalize(timeMs)
-		local par = meta.timeLimit
-		-- Prefer the official keystone time; our GetTime() wall-clock runs a few
-		-- seconds long (it starts at keystone activation, before the timer).
-		local elapsed = timeMs and (timeMs / 1000) or summary.runDuration
-		local tier = ns.Records.TierForTime(elapsed, par)
-		local onTime = (par and par > 0) and (elapsed <= par) or (tier >= 1)
+	local par = meta.timeLimit
+	local level = meta.level or 0
 
-		local run = ns.Records.SaveRun({
-			dungeonMapID   = meta.mapID,
-			dungeonName    = meta.name,
-			keystoneLevel  = meta.level,
-			affixIDs       = meta.affixIDs,
-			seasonID       = meta.seasonID,
-			totalOOC       = summary.totalOOC,
-			segmentCount   = summary.segmentCount,
-			longestSegment = summary.longestSegment,
-			runDuration    = elapsed,
-			goalTime       = par,
-			onTime         = onTime,
-			achievedTier   = tier,
-		})
-
-		if ns.db.settings.announceMythicPlus then
-			ns.SendAnnounce(ns.Records.FormatRunAnnounce(run))
-		end
+	-- The official keystone time = real elapsed + a death penalty. Our gate-drop-
+	-- aligned wall-clock IS the real elapsed (verified to match the official time
+	-- exactly). GetCompletionInfo's time proved unreliable here (returns nil), and
+	-- GetDeathCount's timeLost is NOT key-level-adjusted, so we compute the penalty
+	-- ourselves from the death count and the per-level rate (see DeathPenaltyPerDeath).
+	local deaths = 0
+	if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+		deaths = (C_ChallengeMode.GetDeathCount()) or 0
 	end
+	local penalty = deaths * ns.Records.DeathPenaltyPerDeath(level)
+	local realElapsed = summary.runDuration
+	local officialElapsed = realElapsed + penalty   -- matches the in-game keystone time
 
-	-- GetCompletionInfo may be empty for a moment after the event; poll ~2s.
-	local tries = 0
-	local function attempt()
-		tries = tries + 1
-		local timeMs = readOfficialTimeMs()
-		if timeMs or tries >= 8 then
-			finalize(timeMs)
-		else
-			C_Timer.After(0.25, attempt)
-		end
+	-- Upgrades are judged on the official (penalized) time, so analyze with that.
+	local tier = ns.Records.TierForTime(officialElapsed, par)
+	local onTime = (par and par > 0) and (officialElapsed <= par) or (tier >= 1)
+
+	local run = ns.Records.SaveRun({
+		dungeonMapID   = meta.mapID,
+		dungeonName    = meta.name,
+		keystoneLevel  = level,
+		affixIDs       = meta.affixIDs,
+		seasonID       = meta.seasonID,
+		totalOOC       = summary.totalOOC,
+		segmentCount   = summary.segmentCount,
+		longestSegment = summary.longestSegment,
+		runDuration    = officialElapsed,   -- official time; record analysis uses this
+		deathPenalty   = penalty,           -- so the display can break out real vs total
+		deaths         = deaths,
+		goalTime       = par,
+		onTime         = onTime,
+		achievedTier   = tier,
+	})
+
+	if ns.db.settings.announceMythicPlus then
+		ns.SendAnnounce(ns.Records.FormatRunAnnounce(run))
 	end
-	attempt()
 end
 
 local function onReset()

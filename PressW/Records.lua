@@ -80,6 +80,16 @@ function Records.TierForTime(elapsed, par)
 	return 0
 end
 
+-- Seconds added to the official keystone time per death, by key level (Midnight
+-- Season 1): none at +2–5, 5s at +6–11, 20s at +12 and up. Edit here if Blizzard
+-- retunes. (GetDeathCount's own timeLost is NOT level-adjusted, so we compute it.)
+function Records.DeathPenaltyPerDeath(level)
+	level = level or 0
+	if level >= 12 then return 20 end
+	if level >= 6 then return 5 end
+	return 0
+end
+
 --------------------------------------------------------------------------------
 -- Queries
 --------------------------------------------------------------------------------
@@ -192,17 +202,30 @@ function Records.SaveRun(run)
 	return run
 end
 
--- Build a one-line chat string summarizing a completed run.
+-- Build a one-line chat string summarizing a completed run. `runDuration` is the
+-- official (penalized) time; the real run time is that minus the death penalty.
+-- When a penalty applies we break it out: "<ooc> out of combat over <real>
+-- (+<penalty> death penalty) : <total> total"; otherwise just "<ooc> over <real>".
 function Records.FormatRunAnnounce(run)
 	local tier = (run.achievedTier and run.achievedTier > 0) and ("+" .. run.achievedTier) or "depleted"
-	local s = ("PressW: %s +%d (%s) — %s out of combat over %s"):format(
-		run.dungeonName or "?", run.keystoneLevel or 0, tier,
-		ns.FormatTime(run.totalOOC), ns.FormatTime(run.runDuration))
+	local penalty = run.deathPenalty or 0
+	local real = (run.runDuration or 0) - penalty
+	local timeStr
+	if penalty > 0 then
+		timeStr = ("%s out of combat over %s (+%s death penalty) : %s total"):format(
+			ns.FormatTime(run.totalOOC), ns.FormatTime(real),
+			ns.FormatTime(penalty), ns.FormatTime(run.runDuration))
+	else
+		timeStr = ("%s out of combat over %s"):format(
+			ns.FormatTime(run.totalOOC), ns.FormatTime(real))
+	end
+	local s = ("PressW: %s +%d (%s) — %s"):format(
+		run.dungeonName or "?", run.keystoneLevel or 0, tier, timeStr)
 	if run.couldHaveReached and run.couldHaveReached > (run.achievedTier or 0) then
 		if run.couldHaveReached == 1 then
-			s = s .. (". Missed the timer by %s — that was the downtime!"):format(ns.FormatTime(run.couldHaveGap))
+			s = s .. (". Missed the timer by %s!"):format(ns.FormatTime(run.couldHaveGap))
 		else
-			s = s .. (". Missed +%d by %s — that was the downtime!"):format(run.couldHaveReached, ns.FormatTime(run.couldHaveGap))
+			s = s .. (". Missed +%d by %s!"):format(run.couldHaveReached, ns.FormatTime(run.couldHaveGap))
 		end
 	end
 	return s
@@ -215,43 +238,3 @@ function Records.FormatRecordAnnounce(run)
 		run.keystoneLevel or 0, run.character or "?")
 end
 
---------------------------------------------------------------------------------
--- Debug helper (temporary, until M4 wires real M+ events)
---------------------------------------------------------------------------------
--- Fabricate a plausible completed run so storage / records / upgrade messages
--- can be exercised without an actual key. `/ooc savetest`
-function Records.DebugSaveTest()
-	local pool = {
-		{ id = 9001, name = "Test: Ara-Kara",   par = 1830 },
-		{ id = 9002, name = "Test: City of Threads", par = 1980 },
-		{ id = 9003, name = "Test: Stonevault", par = 1920 },
-	}
-	local d = pool[math.random(#pool)]
-	local par = d.par
-	local elapsed = par + math.random(-120, 150)
-	local tier = 0
-	if elapsed <= par then tier = 1 end
-	if elapsed <= par * 0.8 then tier = 2 end
-	if elapsed <= par * 0.6 then tier = 3 end
-	local totalOOC = math.random(30, 150)
-
-	local run = Records.SaveRun({
-		dungeonMapID   = d.id,
-		dungeonName    = d.name,
-		keystoneLevel  = math.random(8, 18),
-		totalOOC       = totalOOC,
-		segmentCount   = math.random(8, 30),
-		longestSegment = math.random(10, 40),
-		runDuration    = elapsed,
-		goalTime       = par,
-		onTime         = tier >= 1,
-		achievedTier   = tier,
-	})
-	if not run.recorded then
-		ns.Print("test run was below the 'minimum key level to record' setting; not saved.")
-		return
-	end
-	ns.Print(("saved test run: %s +%d, %s elapsed (par %s), tier +%d, OOC %s."):format(
-		run.dungeonName, run.keystoneLevel, ns.FormatTime(run.runDuration),
-		ns.FormatTime(run.goalTime), run.achievedTier, ns.FormatTime(run.totalOOC)))
-end

@@ -23,7 +23,8 @@ local COL = {
 	ooc   = { x = 178, w = 50 },
 	lvl   = { x = 232, w = 28 },
 	char  = { x = 264, w = 88 },
-	badge = { x = 356, w = 74 },
+	-- (right side reserved for a future "X:XX over <best holder>" comparison
+	--  column, once the leaderboard/comms layer lands — see PLAN.md.)
 }
 
 -- Announce channels offered in the dropdown.
@@ -109,7 +110,6 @@ local function acquireRow(i)
 	row.ooc   = fs("ooc",  "GameFontNormal", { 1, 0.82, 0 })
 	row.lvl   = fs("lvl",  "GameFontHighlight")
 	row.char  = fs("char", "GameFontDisable")
-	row.badge = fs("badge", "GameFontNormalSmall", { 1, 0.82, 0 })
 
 	rowPool[i] = row
 	return row
@@ -137,11 +137,6 @@ function RecordsUI.Refresh()
 		row.ooc:SetText(ns.FormatTime(r.totalOOC))
 		row.lvl:SetText("+" .. (r.keystoneLevel or 0))
 		row.char:SetText(shortChar(r.character))
-		if r.couldHaveReached and r.couldHaveReached > (r.achievedTier or 0) then
-			row.badge:SetText(("could be +%d"):format(r.couldHaveReached))
-		else
-			row.badge:SetText("")
-		end
 		row:Show()
 	end
 
