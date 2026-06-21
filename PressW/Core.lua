@@ -187,6 +187,17 @@ SlashCmdList["PRESSW"] = function(msg)
 		ns.Options.Toggle()
 	elseif msg == "savetest" then
 		ns.Records.DebugSaveTest()
+	elseif msg == "dump" then
+		-- Debug: show current season + every stored run's key fields so we can see
+		-- why a filter hides a record. (Temporary; removed before release.)
+		ns.Print("currentSeason() = |cffffff00" .. tostring(ns.GetCurrentSeason and ns.GetCurrentSeason()) ..
+			"|r ; you are |cffffff00" .. tostring(ns.PlayerKey and ns.PlayerKey()) .. "|r")
+		ns.Print((#ns.db.runs) .. " stored run(s):")
+		for i, r in ipairs(ns.db.runs) do
+			print(("  %d) %s | season=%s | +%s | OOC %s | %s"):format(
+				i, tostring(r.dungeonName), tostring(r.seasonID), tostring(r.keystoneLevel),
+				ns.FormatTime(r.totalOOC), tostring(r.character)))
+		end
 	else
 		ns.Print("unknown command '" .. msg .. "'. Type |cffffff00/ooc|r for help.")
 	end

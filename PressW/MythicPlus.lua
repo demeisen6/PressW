@@ -193,6 +193,13 @@ end
 -- recover OOC time accrued before the reload, so this restarts the count from
 -- now (a known limitation; persisting live state across reload is future work).
 local function onEnteringWorld()
+	-- Prime M+ seasonal data so C_MythicPlus.GetCurrentSeason() works in town
+	-- (it returns -1 until this loads), keeping the records season filter accurate.
+	if C_MythicPlus then
+		if C_MythicPlus.RequestCurrentAffixes then C_MythicPlus.RequestCurrentAffixes() end
+		if C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+	end
+
 	if ns.Tracker.IsRunning() then return end
 	if C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
 		and C_ChallengeMode.GetActiveChallengeMapID() then

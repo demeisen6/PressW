@@ -29,11 +29,19 @@ local function playerKey()
 end
 ns.PlayerKey = playerKey
 
+-- Current M+ season. C_MythicPlus.GetCurrentSeason() returns -1 (or 0) before the
+-- seasonal data has loaded — e.g. in town right after login — which would make a
+-- "current season" filter exclude *everything*. So we treat any non-positive
+-- value as "unknown": remember the last good value (persisted across sessions)
+-- and fall back to it; if we've genuinely never seen one, return nil so the
+-- season filter simply shows all rather than hiding all.
 local function currentSeason()
-	if C_MythicPlus and C_MythicPlus.GetCurrentSeason then
-		return C_MythicPlus.GetCurrentSeason() or 0
+	local s = C_MythicPlus and C_MythicPlus.GetCurrentSeason and C_MythicPlus.GetCurrentSeason()
+	if s and s > 0 then
+		if ns.db then ns.db.lastSeason = s end
+		return s
 	end
-	return 0
+	return ns.db and ns.db.lastSeason or nil
 end
 ns.GetCurrentSeason = currentSeason
 
