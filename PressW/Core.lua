@@ -149,7 +149,16 @@ end
 SlashCmdList["PRESSW"] = function(msg)
 	msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 
-	if msg == "" or msg == "help" then
+	if msg == "" then
+		-- If the HUD is locked and idle it's completely hidden (no unlock button),
+		-- so a bare /pressw is the escape hatch to unlock it. Otherwise: help.
+		if ns.db and ns.db.settings.locked and not (ns.Tracker and ns.Tracker.IsRunning()) then
+			ns.Display.SetLocked(false)
+			ns.Print("HUD unlocked — drag it to reposition, then lock it again.")
+		else
+			printHelp()
+		end
+	elseif msg == "help" then
 		printHelp()
 	elseif msg == "version" then
 		ns.Print("version " .. ns.version)
