@@ -237,7 +237,7 @@ local function build()
 	-- Filters row 2: min level + announce channel.
 	local lvlLabel = window:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 	lvlLabel:SetPoint("TOPLEFT", 16, -66)
-	lvlLabel:SetText("Min key level \226\137\165")  -- "Min key level ≥"
+	lvlLabel:SetText("Min key level >=")
 
 	lvlBox = CreateFrame("EditBox", nil, window, "InputBoxTemplate")
 	lvlBox:SetSize(40, 20)
@@ -282,7 +282,7 @@ local function build()
 
 	-- Column headers (Dungeon / OOC sortable).
 	makeHeader("Dungeon", 16 + COL.name.x, "name")
-	makeHeader("OOC \226\150\188", 16 + COL.ooc.x, "ooc")  -- OOC ▼
+	makeHeader("OOC", 16 + COL.ooc.x, "ooc")
 	makeHeader("Lvl", 16 + COL.lvl.x, nil)
 	makeHeader("Character", 16 + COL.char.x, nil)
 

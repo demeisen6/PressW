@@ -68,41 +68,71 @@ local function onStart()
 	C_Timer.After(0.3, attempt)
 end
 
+-- Pull the official run time (ms) from GetCompletionInfo. Robust to two quirks:
+-- the function is often empty for a moment after the event fires (so the caller
+-- retries), and its return order has shifted across patches (so we take the
+-- documented index 3, then fall back to scanning for the one value large enough
+-- to be a run time in ms — scores and levels are far smaller).
+local function readOfficialTimeMs()
+	if not (C_ChallengeMode and C_ChallengeMode.GetCompletionInfo) then return nil end
+	local r = { C_ChallengeMode.GetCompletionInfo() }
+	if type(r[3]) == "number" and r[3] > 1000 then return r[3] end
+	for _, v in ipairs(r) do
+		if type(v) == "number" and v > 60000 then return v end  -- > 1 min in ms
+	end
+	return nil
+end
+
 local function onCompleted()
 	if not ns.Tracker.IsRunning() then return end
 
-	local info = C_ChallengeMode and C_ChallengeMode.GetCompletionInfo
-		and { C_ChallengeMode.GetCompletionInfo() } or {}
-	-- Returns: mapChallengeModeID, level, time(ms), onTime, keystoneUpgradeLevels, ...
-	local level    = info[2]
-	local timeMs   = info[3]
-	local onTime   = info[4]
-	local tier     = info[5] or 0
-
-	local meta = activeMeta or {}
-	local summary = ns.Tracker.Stop()  -- finalizes OOC segments
+	-- Stop tracking immediately so OOC segments end at completion, not after the
+	-- poll delay below. Identity/par come from the keystone info captured at start.
+	local summary = ns.Tracker.Stop()
 	if not summary then return end
+	local meta = activeMeta or {}
+	activeMeta = nil
 
-	local run = ns.Records.SaveRun({
-		dungeonMapID   = meta.mapID,
-		dungeonName    = meta.name,
-		keystoneLevel  = level or meta.level,
-		affixIDs       = meta.affixIDs,
-		seasonID       = meta.seasonID,
-		totalOOC       = summary.totalOOC,
-		segmentCount   = summary.segmentCount,
-		longestSegment = summary.longestSegment,
-		runDuration    = timeMs and (timeMs / 1000) or summary.runDuration,
-		goalTime       = meta.timeLimit,
-		onTime         = onTime,
-		achievedTier   = tier,
-	})
+	local function finalize(timeMs)
+		local par = meta.timeLimit
+		-- Prefer the official keystone time; our GetTime() wall-clock runs a few
+		-- seconds long (it starts at keystone activation, before the timer).
+		local elapsed = timeMs and (timeMs / 1000) or summary.runDuration
+		local tier = ns.Records.TierForTime(elapsed, par)
+		local onTime = (par and par > 0) and (elapsed <= par) or (tier >= 1)
 
-	if ns.db.settings.announceMythicPlus then
-		ns.SendAnnounce(ns.Records.FormatRunAnnounce(run))
+		local run = ns.Records.SaveRun({
+			dungeonMapID   = meta.mapID,
+			dungeonName    = meta.name,
+			keystoneLevel  = meta.level,
+			affixIDs       = meta.affixIDs,
+			seasonID       = meta.seasonID,
+			totalOOC       = summary.totalOOC,
+			segmentCount   = summary.segmentCount,
+			longestSegment = summary.longestSegment,
+			runDuration    = elapsed,
+			goalTime       = par,
+			onTime         = onTime,
+			achievedTier   = tier,
+		})
+
+		if ns.db.settings.announceMythicPlus then
+			ns.SendAnnounce(ns.Records.FormatRunAnnounce(run))
+		end
 	end
 
-	activeMeta = nil
+	-- GetCompletionInfo may be empty for a moment after the event; poll ~2s.
+	local tries = 0
+	local function attempt()
+		tries = tries + 1
+		local timeMs = readOfficialTimeMs()
+		if timeMs or tries >= 8 then
+			finalize(timeMs)
+		else
+			C_Timer.After(0.25, attempt)
+		end
+	end
+	attempt()
 end
 
 local function onReset()

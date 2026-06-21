@@ -61,6 +61,17 @@ local function analyzeUpgrade(elapsed, par, achievedTier, totalOOC)
 end
 Records.AnalyzeUpgrade = analyzeUpgrade  -- exposed for testing
 
+-- The upgrade tier (0..3) a run achieves, derived from elapsed vs par — exactly
+-- how the game decides keystone upgrades. More reliable than GetCompletionInfo's
+-- shifting return order.
+function Records.TierForTime(elapsed, par)
+	if not par or par <= 0 then return 0 end
+	for tier = 3, 1, -1 do
+		if elapsed <= par * TIER_MULT[tier] then return tier end
+	end
+	return 0
+end
+
 --------------------------------------------------------------------------------
 -- Queries
 --------------------------------------------------------------------------------
