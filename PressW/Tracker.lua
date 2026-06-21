@@ -2,10 +2,10 @@
 -- M1: combat out-of-combat state machine + manual start/stop.
 -- See PLAN.md §4 Phase B.
 --
--- The model is a sequence of OOC "segments". A segment opens when the player
--- leaves combat and closes when they enter combat (or the run ends). The sum of
--- closed segments is `totalOOC`; a currently-open segment is added live by the
--- display. Durations come from GetTime() deltas only — never wall-clock.
+-- The model is a sequence of OOC "segments". A segment is open only while we
+-- *should be accruing* downtime — currently: not in combat and not dead/ghost
+-- (see shouldAccrue). The sum of closed segments is `totalOOC`; a currently-open
+-- segment is added live by the display. Durations use GetTime() deltas only.
 
 local ADDON_NAME, ns = ...
 
@@ -16,7 +16,8 @@ ns.Tracker = Tracker
 local state = {
 	isRunning    = false,
 	inCombat     = false,
-	segmentStart = nil,   -- GetTime() when the open OOC segment began; nil if in combat
+	dead         = false, -- player dead/ghost? (downtime while dead isn't counted)
+	segmentStart = nil,   -- GetTime() when the open OOC segment began; nil if not accruing
 	totalOOC     = 0,     -- accumulated seconds from closed segments
 	segments     = {},    -- list of closed-segment durations (for count/longest)
 	startedAt    = nil,   -- GetTime() at run start (for total run duration)
@@ -47,20 +48,37 @@ local function openSegment()
 	state.segmentStart = now()
 end
 
+-- We only count OOC time the player could actually have avoided: not in combat
+-- AND not dead/ghost (dying mid-boss leaves you "out of combat" while the group
+-- fights on — that downtime isn't on you). This predicate is the single place to
+-- extend later (e.g. "all party members out of combat").
+local function shouldAccrue()
+	return state.isRunning and not state.inCombat and not state.dead
+end
+
+-- Open or close the OOC segment so it matches whether we should be accruing now.
+local function refreshSegment()
+	if shouldAccrue() then
+		if not state.segmentStart then openSegment() end
+	elseif state.segmentStart then
+		closeSegment()
+	end
+end
+
 --------------------------------------------------------------------------------
--- Combat transitions (only fire while a run is active)
+-- Combat / death transitions (only fire while a run is active)
 --------------------------------------------------------------------------------
 events:SetScript("OnEvent", function(_, event)
 	if not state.isRunning then return end
 	if event == "PLAYER_REGEN_DISABLED" then
-		-- entering combat: stop accruing OOC
-		closeSegment()
 		state.inCombat = true
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		-- leaving combat: start accruing OOC
 		state.inCombat = false
-		openSegment()
+	elseif event == "PLAYER_DEAD" or event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+		-- Re-read authoritatively rather than trust which event means what.
+		state.dead = UnitIsDeadOrGhost("player") and true or false
 	end
+	refreshSegment()
 end)
 
 --------------------------------------------------------------------------------
@@ -96,14 +114,15 @@ function Tracker.Start(source, meta)
 	state.segmentStart = nil
 	state.startedAt    = now()
 	state.inCombat     = UnitAffectingCombat("player") and true or false
-
-	-- If we begin out of combat, the OOC clock is already running.
-	if not state.inCombat then
-		openSegment()
-	end
+	state.dead         = UnitIsDeadOrGhost("player") and true or false
 
 	events:RegisterEvent("PLAYER_REGEN_DISABLED")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
+	events:RegisterEvent("PLAYER_DEAD")
+	events:RegisterEvent("PLAYER_UNGHOST")
+	events:RegisterEvent("PLAYER_ALIVE")
+
+	refreshSegment()  -- open the OOC clock now if we should already be accruing
 
 	if ns.Display and ns.Display.OnRunStart then ns.Display.OnRunStart() end
 	return true
@@ -116,8 +135,7 @@ function Tracker.Stop()
 	if not state.isRunning then return nil end
 
 	closeSegment()
-	events:UnregisterEvent("PLAYER_REGEN_DISABLED")
-	events:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	events:UnregisterAllEvents()
 
 	local longest = 0
 	for _, d in ipairs(state.segments) do

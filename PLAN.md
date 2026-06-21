@@ -29,13 +29,31 @@ original `OCCTracker` typo.) The CurseForge project slug/branding in §6 should
 follow this name.
 
 ### Noted future improvements (not in v1)
-- OOC defined as **all party members out of combat** (track each unit's combat flag).
-- OOC defined as **a specific group member** being out of combat (focus/targeted player).
-- Sync/leaderboard of records across guild or party.
-- Export records / WeakAura-style sharing string.
-- **"Unskippable" OOC blocks**: some dungeon downtime isn't the player's fault — forced NPC conversations/escorts, RP walk-and-talk segments, scripted gates, elevator/transport rides, boss intro cinematics, etc. We'll eventually need a **data source** to classify these so they can be excluded (or shown separately as "forced OOC") from the player's "movable" OOC time. Open problem: where does that data come from?
-  - Candidate signals: a hand-maintained per-dungeon table of known forced segments (keyed by encounter/quest/scene IDs); `CINEMATIC_START/STOP` & movie events; `C_QuestLog`/`GOSSIP_*` events during a key; UnitChannelInfo on escort NPCs; the M+ "force timer not running" hint (some scenes pause the key timer — that pause window is a strong proxy for "forced"). Likely a hybrid: detect what we can from events, fall back to a curated table per patch.
-  - Until then v1 counts *all* OOC time uniformly and we note this caveat to the user.
+- **OOC accuracy — don't count downtime that isn't on you.**
+  - ✅ *Shipped in v1:* time spent **dead/ghost** (boss-fight death, corpse run, waiting on a battle-rez) is not counted — you've left combat, but the group is still fighting. Implemented as the `shouldAccrue` predicate in `Tracker.lua`, the single extension point for the items below.
+  - *v1.1 (recommended next):* OOC defined as **all party members out of combat**, via polling `UnitAffectingCombat("party1".."party4")` (~3–4×/sec). Works for every group member on day one regardless of who has the addon; the caveat is a member's combat flag can read stale when far out of range (rare in a 5-man). Becomes one extra condition in `shouldAccrue`.
+  - *Later:* OOC defined as **a specific group member** out of combat (focus/targeted player) as an option.
+
+### Addon communication / sync layer (post-launch — needs multi-client testing)
+A peer-to-peer layer over addon messages (`C_ChatInfo.RegisterAddonMessagePrefix` + `SendAddonMessage` on PARTY/GUILD). One piece of infrastructure, several payoffs — but **none of it is testable solo**; every feature lives in the multi-client interactions, so it waits until a basic CurseForge release exists and can be beta-tested with a few guildmates running an experimental build.
+- **Combat-state sync → "all *PressW users* out of combat".** Each client knows its own combat state perfectly (`PLAYER_REGEN_*`) and broadcasts it, sidestepping the `UnitAffectingCombat` range caveat above. Needs roster discovery, periodic heartbeats, stale-peer timeouts, send-throttle handling, and `GROUP_ROSTER_UPDATE` pruning. Note the chicken-and-egg: it only differs from player-only behavior once *other* party members also run PressW, so its value scales with adoption — which is why `UnitAffectingCombat` polling is the better *first* accuracy step.
+- **Record sharing / leaderboards.** Broadcast and compare best OOC times across party/guild; e.g. a "least downtime" leaderboard. This is also the **plan of record for the "unavoidable downtime" problem** (see below) — a comparative floor sidesteps having to identify forced segments at all. Builds directly on this comms layer.
+- **Version-update nag (DBM-style).** Broadcast the addon's version constant; if a peer reports a higher version, print a one-time "update available" line. (Addons can't query the web, so peer broadcast is the only in-game mechanism — the external CurseForge/WoWUp managers handle the actual download.)
+- Export records / WeakAura-style sharing string (no comms needed; copy/paste).
+- **Records UI — character filter as a dropdown.** Replace the "This character" checkbox with a dropdown:
+  - **This** (default) — only the current character's records.
+  - **Any** — current "unchecked" behavior: the single best per dungeon across all your characters (one row per dungeon, Character column shows who holds it).
+  - **All** — one row per character per dungeon (`GetBest` keyed by `dungeonMapID..character`), for comparing alts.
+  - Below those, list **each alt that has records** (even ones you're not currently logged into) as its own pick, so you can filter to a specific character on demand. 
+- **"Unavoidable downtime" — solved comparatively, not absolutely (plan of record).**
+  Some dungeon downtime isn't the player's fault: post-boss dialog gates (e.g. Seat of the Triumvirate), pre-boss narrative intros (e.g. Algeth'ar Academy), elevator/transport rides, scripted gates. In current M+ the keystone **timer keeps running through all of these**, and there's no clean event for them — so detecting/subtracting them via a curated per-dungeon/affix/patch table is brittle and high-maintenance. (Note: an earlier idea here — "some scenes pause the key timer, use that as a proxy" — does **not** hold; the M+ timer doesn't pause mid-run. There are also no mid-run cinematics in the current pool, so `CINEMATIC_*`/movie events won't help either.)
+  - **Two metrics, very different reliability:**
+    - *Absolute* — "you had Y seconds of *avoidable* downtime." Requires knowing the unavoidable floor → needs the curated table. Never quite provable. **Deprioritized.**
+    - *Comparative* — "the best logged run had X downtime; you had X+N." Needs **zero** forced-segment data: the forced waits are baked into everyone's runs equally and cancel out of the comparison. The floor **self-calibrates** per dungeon, key level, affix set, and season — exactly the variables a hand table would have to chase every patch.
+  - **The leaderboard *is* the solution.** It proves *achievability* ("someone did it in X, so X is reachable"), not a theoretical minimum — the honest claim to make. Scope tiers, in order of feasibility:
+    - **Guild record** — quick to stand up: a handful of guildmates running PressW gives an empirical floor everyone measures against fairly, exchanged over the comms layer within a trusted group.
+    - **Global record** — needs a real user base, propagates peer-to-peer ("by telephone": records passed along run to run), and adds a **trust/anti-cheat problem** — SavedVariables is a plain editable file, so a global record must assume someone faked theirs. Verification (sanity bounds, corroboration by co-runners, quorum/signed reporting) is its own hard sub-problem, strictly later.
+  - **v1 caveat:** v1 counts *all* OOC uniformly, and the "could've +N by less than your OOC time" line is an **optimistic heuristic** — it assumes all your downtime was avoidable. Revisit its wording once the comparative metric exists so it's framed against the achievable floor rather than zero.
 
 ---
 

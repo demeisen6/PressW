@@ -3,9 +3,10 @@
 -- completed key into Records.SaveRun. See PLAN.md §4 (integrate Phase B with M+).
 --
 -- Lifecycle:
---   CHALLENGE_MODE_START      -> capture meta, start tracking
---   CHALLENGE_MODE_COMPLETED  -> read completion info, stop, save the run
---   CHALLENGE_MODE_RESET      -> discard the in-progress run (never saved)
+--   CHALLENGE_MODE_START      -> capture meta; wait out the gate countdown
+--   START_TIMER               -> gate countdown duration; start tracking when it ends
+--   CHALLENGE_MODE_COMPLETED  -> read official time, stop, save the run
+--   CHALLENGE_MODE_RESET      -> cancel pending start / discard the run (never saved)
 --   PLAYER_ENTERING_WORLD     -> best-effort resume if a key is already active
 --                                (e.g. after /reload mid-key)
 
@@ -16,6 +17,15 @@ ns.MythicPlus = MythicPlus
 
 -- Metadata for the currently tracked key (mapID/name/par/level/affixes/season).
 local activeMeta = nil
+
+-- Between CHALLENGE_MODE_START and the gate dropping there's a countdown during
+-- which the player is stuck behind the barrier (and thus "out of combat"). We do
+-- NOT start tracking until that countdown ends, so it isn't counted as avoidable
+-- downtime and our run time lines up with the official keystone timer.
+-- `awaitingStart`/`startToken` guard the scheduled start against resets.
+local awaitingStart = false
+local startToken = 0
+local pendingCountdown = nil   -- set if START_TIMER arrives before CHALLENGE_MODE_START
 
 --------------------------------------------------------------------------------
 -- Metadata gathering
@@ -42,30 +52,65 @@ end
 -- Lifecycle
 --------------------------------------------------------------------------------
 local function beginRun(meta)
-	-- If anything (a manual run) was tracking, drop it — the key takes over.
-	if ns.Tracker.IsRunning() then ns.Tracker.Stop() end
+	meta = meta or activeMeta or gatherMeta()
+	if not meta then return end
+	if ns.Tracker.IsRunning() then ns.Tracker.Stop() end  -- a manual run yields to the key
 	activeMeta = meta
+	awaitingStart = false
 	ns.Tracker.Start("mythicplus", meta)
 end
 
-local function onStart()
-	local meta = gatherMeta()
-	if meta then
-		beginRun(meta)
-		return
-	end
-	-- Keystone info occasionally lags the event by a frame; retry briefly.
-	local tries = 0
-	local function attempt()
-		tries = tries + 1
-		local m = gatherMeta()
-		if m then
-			beginRun(m)
-		elseif tries < 5 then
-			C_Timer.After(0.3, attempt)
+-- Begin tracking now, unless this scheduled call was superseded (token changed),
+-- already handled/cancelled (awaitingStart false), or the key is gone.
+local function tryStart(token)
+	if token ~= startToken or not awaitingStart then return end
+	if not (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
+		and C_ChallengeMode.GetActiveChallengeMapID()) then return end
+	beginRun()
+end
+
+local function onChallengeStart()
+	startToken = startToken + 1
+	local token = startToken
+	awaitingStart = true
+
+	-- Capture meta now; keystone info can lag the event by a frame, so retry.
+	activeMeta = gatherMeta()
+	if not activeMeta then
+		local tries = 0
+		local function grab()
+			tries = tries + 1
+			activeMeta = gatherMeta()
+			if not activeMeta and tries < 5 then C_Timer.After(0.3, grab) end
 		end
+		C_Timer.After(0.3, grab)
 	end
-	C_Timer.After(0.3, attempt)
+
+	-- Wait out the gate countdown before tracking. START_TIMER gives the exact
+	-- duration; if it already arrived, use it. Always set a safety-net fallback
+	-- (~typical countdown) in case START_TIMER never reports.
+	if pendingCountdown then
+		C_Timer.After(pendingCountdown, function() tryStart(token) end)
+		pendingCountdown = nil
+	end
+	C_Timer.After(12, function() tryStart(token) end)
+end
+
+-- START_TIMER fires with the gate countdown when a key begins. Schedule tracking
+-- to start when it ends; handles either event order relative to CHALLENGE_MODE_START.
+local function onStartTimer(timerType, timeSeconds)
+	local cmType = Enum and Enum.StartTimerType and Enum.StartTimerType.ChallengeModeCountdown
+	local isChallenge = (cmType ~= nil and timerType == cmType)
+	if awaitingStart then
+		-- Accept the challenge countdown, or any countdown if we can't identify the
+		-- type (we're already gated to the key-start window, so it's safe).
+		if isChallenge or cmType == nil then
+			local token = startToken
+			C_Timer.After(timeSeconds or 0, function() tryStart(token) end)
+		end
+	elseif isChallenge then
+		pendingCountdown = timeSeconds  -- arrived before CHALLENGE_MODE_START
+	end
 end
 
 -- Pull the official run time (ms) from GetCompletionInfo. Robust to two quirks:
@@ -136,7 +181,10 @@ local function onCompleted()
 end
 
 local function onReset()
-	-- Key abandoned/restarted: discard the live run without saving.
+	-- Key abandoned/restarted: cancel any pending start and discard the live run.
+	awaitingStart = false
+	startToken = startToken + 1   -- invalidate scheduled tryStart callbacks
+	pendingCountdown = nil
 	if ns.Tracker.IsRunning() then ns.Tracker.Stop() end
 	activeMeta = nil
 end
@@ -161,13 +209,16 @@ end
 --------------------------------------------------------------------------------
 local events = CreateFrame("Frame")
 events:RegisterEvent("CHALLENGE_MODE_START")
+events:RegisterEvent("START_TIMER")
 events:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 events:RegisterEvent("CHALLENGE_MODE_RESET")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-events:SetScript("OnEvent", function(_, event)
+events:SetScript("OnEvent", function(_, event, ...)
 	if event == "CHALLENGE_MODE_START" then
-		onStart()
+		onChallengeStart()
+	elseif event == "START_TIMER" then
+		onStartTimer(...)
 	elseif event == "CHALLENGE_MODE_COMPLETED" then
 		onCompleted()
 	elseif event == "CHALLENGE_MODE_RESET" then
