@@ -69,6 +69,12 @@ Found a bug or have a request? [Open an issue](https://github.com/demeisen6/Pres
 
 - v1 tracks **your** combat state only (`PLAYER_REGEN_ENABLED/DISABLED`).
   Group-wide or per-member out-of-combat tracking is a planned future option.
+- Some out-of-combat time is **unavoidable** — forced NPC conversations, RP
+  walk-and-talks, scripted gates, elevator/transport rides, and boss intro
+  cinematics all count as downtime you can't "press W" through. v1 counts all
+  OOC time uniformly; a planned future improvement will detect these forced
+  segments and exclude them (or show them separately) so the addon only nags you
+  about downtime you could actually have avoided.
 - Records are stored account-wide in SavedVariables (`PressWDB`).
 
 ## License
