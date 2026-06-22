@@ -5,8 +5,10 @@ combat** during a Mythic+ keystone run — because the timer doesn't stop just
 because you do. *Just press W and move.*
 
 It shows your downtime live, nudges you with text that grows and turns red the
-longer you stand around, and keeps per-dungeon records of your *least* total
-out-of-combat time.
+longer you spend out of combat, and keeps per-dungeon records of your *least* total out-of-combat time.
+
+Please note some out-of-combat time is **unavoidable** — forced NPC conversations, RP dialog, elevator/transport rides, and boss intro animations all count as downtime you can't "press W" through. v1 counts all OOC time uniformly; Future versions will try to establish a 'baseline' of unskippable
+OOC time to compare against for each M+ dungeon.
 
 ## Features
 

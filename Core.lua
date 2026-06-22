@@ -8,7 +8,7 @@ local ADDON_NAME, ns = ...
 
 -- Make a couple of bits available to other files as we add them.
 ns.name = ADDON_NAME
-ns.version = C_AddOns and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "0.0.1"
+ns.version = C_AddOns and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "1.0.0"
 
 --------------------------------------------------------------------------------
 -- Defaults

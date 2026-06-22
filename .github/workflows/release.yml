@@ -1,0 +1,28 @@
+name: Package and Release
+
+# Build the addon and upload it to CurseForge whenever a version tag is pushed
+# (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # lets the packager create the matching GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags, so the packager can build the changelog
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        env:
+          # CurseForge upload target comes from `## X-Curse-Project-ID` in the .toc.
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          # Auto-provided token; used to attach the zip to a GitHub release.
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}

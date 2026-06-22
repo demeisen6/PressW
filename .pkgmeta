@@ -1,0 +1,12 @@
+package-as: PressW
+
+# No bundled libraries.
+enable-nolib-creation: no
+
+# Keep repo-only files out of the packaged addon. (README and LICENSE are kept.)
+ignore:
+  - .git
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - PLAN.md
